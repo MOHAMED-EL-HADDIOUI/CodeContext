@@ -1,0 +1,16 @@
+node_modules/
+.output/
+.wxt/
+dist/
+release/
+coverage/
+test-results/
+playwright-report/
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+Thumbs.db
+writing-block.md
+.impeccable/

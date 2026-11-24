@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" fill="none">
+  <defs>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.2" fill="#334155" fill-opacity="0.45"/>
+    </pattern>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#090B10"/>
+      <stop offset="55%" stop-color="#0D1320"/>
+      <stop offset="100%" stop-color="#090B10"/>
+    </linearGradient>
+    <radialGradient id="glowCyan" cx="22%" cy="50%" r="40%">
+      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#38BDF8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowMint" cx="84%" cy="28%" r="35%">
+      <stop offset="0%" stop-color="#34D399" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#34D399" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="320" rx="20" fill="url(#bg)"/>
+  <rect width="1200" height="320" rx="20" fill="url(#dots)"/>
+  <rect width="1200" height="320" rx="20" fill="url(#glowCyan)"/>
+  <rect width="1200" height="320" rx="20" fill="url(#glowMint)"/>
+  <rect x="1" y="1" width="1198" height="318" rx="19" stroke="#1E293B" stroke-width="2"/>
+
+  <!-- Brand Emblem -->
+  <g transform="translate(86, 86)">
+    <rect x="0" y="0" width="148" height="148" rx="30" fill="#0F172A" stroke="#334155" stroke-width="3"/>
+    <path d="M56 46L30 74L56 102" stroke="#38BDF8" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M92 46L118 74L92 102" stroke="#38BDF8" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M67 104L81 44" stroke="#F8FAFC" stroke-width="10" stroke-linecap="round"/>
+    <circle cx="114" cy="34" r="9" fill="#34D399"/>
+  </g>
+
+  <!-- Title & Tagline -->
+  <text x="274" y="142" fill="#F8FAFC" font-family="'IBM Plex Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="56" font-weight="700" letter-spacing="-1.5">CodeContext</text>
+  <text x="276" y="186" fill="#94A3B8" font-family="'IBM Plex Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="22" font-weight="400">Understand Any Codebase. Ask Better Questions.</text>
+
+  <!-- Feature Pills -->
+  <g transform="translate(274, 212)" font-family="'JetBrains Mono', ui-monospace, monospace" font-size="13" font-weight="500">
+    <rect x="0" y="0" width="146" height="30" rx="8" fill="#121722" stroke="#2D3C54"/>
+    <circle cx="16" cy="15" r="4" fill="#34D399"/>
+    <text x="28" y="19" fill="#E2E8F0">Chrome MV3</text>
+
+    <rect x="160" y="0" width="160" height="30" rx="8" fill="#121722" stroke="#2D3C54"/>
+    <circle cx="176" cy="15" r="4" fill="#38BDF8"/>
+    <text x="188" y="19" fill="#E2E8F0">Local-First RAG</text>
+
+    <rect x="334" y="0" width="176" height="30" rx="8" fill="#121722" stroke="#2D3C54"/>
+    <circle cx="350" cy="15" r="4" fill="#38BDF8"/>
+    <text x="362" y="19" fill="#E2E8F0">Verified Citations</text>
+
+    <rect x="524" y="0" width="166" height="30" rx="8" fill="#121722" stroke="#2D3C54"/>
+    <circle cx="540" cy="15" r="4" fill="#34D399"/>
+    <text x="552" y="19" fill="#E2E8F0">MIT Open Source</text>
+  </g>
+</svg>
