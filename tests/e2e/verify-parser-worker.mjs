@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { chromium } from 'playwright';
 
-const root = path.resolve(process.cwd(), '.output/chrome-mv3');
+const root = path.resolve(process.env.CC_EXTENSION_PATH || path.join('.output', 'chrome-mv3'));
 const worker = fs.readdirSync(path.join(root, 'assets')).find((name) => /^sourceParser\.worker-.*\.js$/.test(name) && fs.statSync(path.join(root, 'assets', name)).size > 200000);
 if (!worker) throw new Error('Bundled parser worker not found.');
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'codecontext-parser-'));

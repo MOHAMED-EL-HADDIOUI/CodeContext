@@ -14,11 +14,15 @@ CodeContext uses the following open-source libraries under permissive licenses (
 | `dexie` | Apache-2.0 | IndexedDB wrapper for local repository storage |
 | `minisearch` | MIT | Local full-text lexical search |
 | `shiki` | MIT | Fine-grained syntax highlighting |
-| `web-tree-sitter` | MIT | WebAssembly incremental parser runtime |
+| `web-tree-sitter` & bundled language grammars | MIT | WebAssembly incremental parser runtime and local AST extraction |
+| `@huggingface/transformers` | Apache-2.0 | Optional local feature-extraction model inference |
+| `onnxruntime-web` | MIT | Bundled local WASM inference runtime |
 | `@octokit/rest` | MIT | GitHub REST API client |
 | `zod` | MIT | Runtime schema validation for messages & storage |
 | `marked` | MIT | Markdown parsing |
 | `dompurify` | Apache-2.0 / MPL-2.0 | HTML sanitization for XSS defense |
+| `fflate` | MIT | ZIP archive extraction and safe local-source ingestion |
+| `sharp` | Apache-2.0 | Optional image-processing dependency of Transformers.js |
 
 ## Development Skills & Tooling
 

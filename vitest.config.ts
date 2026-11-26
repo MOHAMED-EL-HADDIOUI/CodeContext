@@ -6,14 +6,19 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],
-    include: ['tests/unit/**/*.test.ts', 'tests/unit/**/*.test.tsx', 'tests/integration/**/*.test.ts', 'tests/integration/**/*.test.tsx'],
-    exclude: ['tests/e2e/**', 'node_modules/**'],
+    include: [
+      'tests/unit/**/*.test.ts',
+      'tests/unit/**/*.test.tsx',
+      'tests/integration/**/*.test.ts',
+      'tests/integration/**/*.test.tsx',
+    ],
+    exclude: ['tests/e2e/**', 'tests/integration/liveIntegrations.test.ts', 'node_modules/**'],
     testTimeout: 15000,
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, '.'),
-      '~': path.resolve(__dirname, '.'),
+      '@': path.resolve(import.meta.dirname, '.'),
+      '~': path.resolve(import.meta.dirname, '.'),
     },
   },
 });

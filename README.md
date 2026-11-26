@@ -186,6 +186,7 @@ pnpm run release      # Verified unpacked + ZIP package in release/
 | [docs/SECURITY.md](./docs/SECURITY.md) | Threat model, CSP, credential isolation, prompt-injection & XSS defenses |
 | [docs/PRIVACY.md](./docs/PRIVACY.md) | Local-first data handling, third-party transmission rules, and data deletion |
 | [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md) | Local dev setup, directory layout, installed skills, and testing workflow |
+| [docs/RELEASE.md](./docs/RELEASE.md) | Reproducible release verification, live integration tests, and publication checklist |
 | [CHROMEWEBSTORE.md](./CHROMEWEBSTORE.md) | Store listing copy, plain-English permission justifications, and checklist |
 | [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) | Open-source dependency license attributions |
 | [CHANGELOG.md](./CHANGELOG.md) | Release history |
@@ -193,12 +194,12 @@ pnpm run release      # Verified unpacked + ZIP package in release/
 
 ---
 
-## 🗺 Roadmap
+## ✅ Implemented Roadmap
 
-- [ ] Optional downloadable WebGPU / Transformers.js neural embedding models cached locally
-- [ ] Interactive cross-file symbol call-graph & dependency map visualization
-- [ ] Pull Request diff review mode directly from GitHub PR tabs
-- [ ] Multi-repository workspace comparison queries
+- [x] Optional downloadable Transformers.js neural embedding models cached locally
+- [x] Interactive cross-file approximate references and dependency navigation
+- [x] Pull request, commit, and comparison review with verified source citations
+- [x] Multi-repository workspace retrieval and source attribution
 
 ---
 

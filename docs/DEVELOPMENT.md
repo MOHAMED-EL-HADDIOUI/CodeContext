@@ -42,7 +42,11 @@ pnpm run lint          # ESLint static analysis
 pnpm test              # Vitest unit & integration suite
 pnpm run build         # Production Chrome MV3 bundle (.output/chrome-mv3)
 pnpm run test:e2e      # Production MV3 Chromium workflows, axe checks, and real parser-worker probe
-pnpm run release       # Verified release build + ZIP archive in release/
+pnpm run release       # Rebuild, validate, and package with SHA-256 manifest
+pnpm run verify:release # Test packaged Chromium release and real AST parser
+pnpm run verify        # Complete local production acceptance pipeline
+pnpm run store:assets  # Generate synthetic-data store screenshots
+pnpm run test:live     # Opt-in live integration suite (local ignored env supported)
 pnpm audit             # Dependency vulnerability audit
 ```
 

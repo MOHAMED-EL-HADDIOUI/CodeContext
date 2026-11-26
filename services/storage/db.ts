@@ -61,31 +61,68 @@ export class CodeContextDB extends Dexie {
       savedReferences: 'id, url, createdAt',
       embeddings: 'chunkId, repositoryId, model',
     });
-    this.version(2).stores({
-      repositories: 'id, fullName, owner, indexingStatus, updatedAt, source, ref, [owner+name+ref+scopePath]',
-      files: 'id, repositoryId, [repositoryId+path], path, language, sha, indexed',
-      symbols: 'id, repositoryId, fileId, [repositoryId+name], name, kind',
-      chunks: 'id, repositoryId, fileId, [repositoryId+filePath], language, symbolName',
-      chatSessions: 'id, repositoryId, updatedAt',
-      chatMessages: 'id, sessionId, repositoryId, createdAt',
-      savedReferences: 'id, url, createdAt',
-      embeddings: 'chunkId, repositoryId, model',
-      indexJobs: 'id, repositoryId, status, updatedAt',
-      changeSets: 'id, repositoryId, createdAt',
-      reviewReports: 'id, repositoryId, changeSetId, createdAt',
-      investigationItems: 'id, sessionId, repositoryId, updatedAt, type',
-      workspaces: 'id, name, updatedAt',
-      embeddingModels: 'id, status, updatedAt',
-    }).upgrade(async (transaction) => {
-      await transaction.table('repositories').toCollection().modify((repo: Repository) => {
-        repo.source ??= 'github';
-        repo.ref ??= repo.defaultBranch;
-        repo.indexScope ??= 'repository';
+    this.version(2)
+      .stores({
+        repositories:
+          'id, fullName, owner, indexingStatus, updatedAt, source, ref, [owner+name+ref+scopePath]',
+        files: 'id, repositoryId, [repositoryId+path], path, language, sha, indexed',
+        symbols: 'id, repositoryId, fileId, [repositoryId+name], name, kind',
+        chunks: 'id, repositoryId, fileId, [repositoryId+filePath], language, symbolName',
+        chatSessions: 'id, repositoryId, updatedAt',
+        chatMessages: 'id, sessionId, repositoryId, createdAt',
+        savedReferences: 'id, url, createdAt',
+        embeddings: 'chunkId, repositoryId, model',
+        indexJobs: 'id, repositoryId, status, updatedAt',
+        changeSets: 'id, repositoryId, createdAt',
+        reviewReports: 'id, repositoryId, changeSetId, createdAt',
+        investigationItems: 'id, sessionId, repositoryId, updatedAt, type',
+        workspaces: 'id, name, updatedAt',
+        embeddingModels: 'id, status, updatedAt',
+      })
+      .upgrade(async (transaction) => {
+        await transaction
+          .table('repositories')
+          .toCollection()
+          .modify((repo: Repository) => {
+            repo.source ??= 'github';
+            repo.ref ??= repo.defaultBranch;
+            repo.indexScope ??= 'repository';
+          });
       });
-    });
     this.version(3).stores({
       sourceSnapshots: 'id, repositoryId, [repositoryId+path], sha',
     });
+    this.version(4)
+      .stores({
+        investigationItems: 'id, sessionId, repositoryId, updatedAt, type',
+        workspaces: 'id, name, updatedAt',
+        indexJobs: 'id, repositoryId, status, updatedAt',
+      })
+      .upgrade(async (transaction) => {
+        // Keep records and existing source identities intact. Interrupted jobs are
+        // never marked complete after an extension upgrade or worker restart.
+        await transaction
+          .table('indexJobs')
+          .toCollection()
+          .modify((job: IndexJob) => {
+            job.completedFiles ??= [];
+            job.pendingFiles ??= [];
+            if (job.status === 'running') {
+              job.status = 'paused';
+              job.phase = 'cancelled';
+              job.error = 'Indexing was interrupted by an extension upgrade. Resume to continue.';
+            }
+          });
+        await transaction
+          .table('repositories')
+          .toCollection()
+          .modify((repo: Repository) => {
+            if (repo.indexingStatus === 'indexing') {
+              repo.indexingStatus = 'cancelled';
+              repo.indexingError = 'Indexing paused during extension upgrade. Resume to continue.';
+            }
+          });
+      });
   }
 }
 
@@ -106,50 +143,58 @@ const repositoryTables = (database: CodeContextDB) => [
 ];
 
 export async function deleteRepositoryData(repositoryId: string, database = db): Promise<void> {
-  await database.transaction('rw', [database.repositories, ...repositoryTables(database)], async () => {
-    await Promise.all([
-      database.files.where('repositoryId').equals(repositoryId).delete(),
-      database.symbols.where('repositoryId').equals(repositoryId).delete(),
-      database.chunks.where('repositoryId').equals(repositoryId).delete(),
-      database.embeddings.where('repositoryId').equals(repositoryId).delete(),
-      database.chatMessages.where('repositoryId').equals(repositoryId).delete(),
-      database.chatSessions.where('repositoryId').equals(repositoryId).delete(),
-      database.indexJobs.where('repositoryId').equals(repositoryId).delete(),
-      database.changeSets.where('repositoryId').equals(repositoryId).delete(),
-      database.reviewReports.where('repositoryId').equals(repositoryId).delete(),
-      database.investigationItems.where('repositoryId').equals(repositoryId).delete(),
-      database.sourceSnapshots.where('repositoryId').equals(repositoryId).delete(),
-    ]);
-    await database.repositories.delete(repositoryId);
-  });
+  await database.transaction(
+    'rw',
+    [database.repositories, ...repositoryTables(database)],
+    async () => {
+      await Promise.all([
+        database.files.where('repositoryId').equals(repositoryId).delete(),
+        database.symbols.where('repositoryId').equals(repositoryId).delete(),
+        database.chunks.where('repositoryId').equals(repositoryId).delete(),
+        database.embeddings.where('repositoryId').equals(repositoryId).delete(),
+        database.chatMessages.where('repositoryId').equals(repositoryId).delete(),
+        database.chatSessions.where('repositoryId').equals(repositoryId).delete(),
+        database.indexJobs.where('repositoryId').equals(repositoryId).delete(),
+        database.changeSets.where('repositoryId').equals(repositoryId).delete(),
+        database.reviewReports.where('repositoryId').equals(repositoryId).delete(),
+        database.investigationItems.where('repositoryId').equals(repositoryId).delete(),
+        database.sourceSnapshots.where('repositoryId').equals(repositoryId).delete(),
+      ]);
+      await database.repositories.delete(repositoryId);
+    },
+  );
 }
 
 export async function clearAllDatabaseData(database = db): Promise<void> {
-  await database.transaction('rw', [
-    database.repositories,
-    ...repositoryTables(database),
-    database.savedReferences,
-    database.workspaces,
-    database.embeddingModels,
-  ], async () => {
-    await Promise.all([
-      database.repositories.clear(),
-      database.files.clear(),
-      database.symbols.clear(),
-      database.chunks.clear(),
-      database.chatSessions.clear(),
-      database.chatMessages.clear(),
-      database.savedReferences.clear(),
-      database.embeddings.clear(),
-      database.indexJobs.clear(),
-      database.changeSets.clear(),
-      database.reviewReports.clear(),
-      database.investigationItems.clear(),
-      database.sourceSnapshots.clear(),
-      database.workspaces.clear(),
-      database.embeddingModels.clear(),
-    ]);
-  });
+  await database.transaction(
+    'rw',
+    [
+      database.repositories,
+      ...repositoryTables(database),
+      database.savedReferences,
+      database.workspaces,
+      database.embeddingModels,
+    ],
+    async () => {
+      await Promise.all([
+        database.repositories.clear(),
+        database.files.clear(),
+        database.symbols.clear(),
+        database.chunks.clear(),
+        database.chatSessions.clear(),
+        database.chatMessages.clear(),
+        database.savedReferences.clear(),
+        database.embeddings.clear(),
+        database.indexJobs.clear(),
+        database.changeSets.clear(),
+        database.reviewReports.clear(),
+        database.investigationItems.clear(),
+        database.sourceSnapshots.clear(),
+        database.workspaces.clear(),
+        database.embeddingModels.clear(),
+      ]);
+    },
+  );
 }
 
 export async function getStorageStats(database = db): Promise<{
@@ -174,7 +219,15 @@ export async function getStorageStats(database = db): Promise<{
 }
 
 export async function exportUserData(database = db): Promise<string> {
-  const [repositories, chatSessions, chatMessages, savedReferences, investigationItems, workspaces, reviewReports] = await Promise.all([
+  const [
+    repositories,
+    chatSessions,
+    chatMessages,
+    savedReferences,
+    investigationItems,
+    workspaces,
+    reviewReports,
+  ] = await Promise.all([
     database.repositories.toArray(),
     database.chatSessions.toArray(),
     database.chatMessages.toArray(),
@@ -188,9 +241,16 @@ export async function exportUserData(database = db): Promise<string> {
     exportedAt: new Date().toISOString(),
     version: '2.0.0',
     repositories: repositories.map((r) => ({
-      id: r.id, fullName: r.fullName, url: r.url, source: r.source ?? 'github', ref: r.ref ?? r.defaultBranch,
-      scopePath: r.scopePath, commitSha: r.commitSha, languages: r.languages,
-      indexedFileCount: r.indexedFileCount, indexedAt: r.indexedAt,
+      id: r.id,
+      fullName: r.fullName,
+      url: r.url,
+      source: r.source ?? 'github',
+      ref: r.ref ?? r.defaultBranch,
+      scopePath: r.scopePath,
+      commitSha: r.commitSha,
+      languages: r.languages,
+      indexedFileCount: r.indexedFileCount,
+      indexedAt: r.indexedAt,
     })),
     chatSessions,
     chatMessages,

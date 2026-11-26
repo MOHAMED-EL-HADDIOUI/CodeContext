@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   AlertTriangle,
   Bookmark,
@@ -196,6 +196,7 @@ export const ChatView: React.FC = () => {
     clearChatHistory,
   } = useAppStore();
 
+  const reducedMotion = useReducedMotion();
   const [input, setInput] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState(false);
@@ -467,9 +468,9 @@ export const ChatView: React.FC = () => {
                     <motion.button
                       key={item.label}
                       type="button"
-                      initial={{ opacity: 0, y: 6 }}
+                      initial={reducedMotion ? false : { opacity: 0, y: 6 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.18, delay: idx * 0.04 }}
+                      transition={reducedMotion ? { duration: 0 } : { duration: 0.18, delay: idx * 0.04 }}
                       onClick={() => void sendMessage(item.prompt, item.mode)}
                       className="cc-card p-2.5 text-left rounded-xl hover:border-[var(--accent-border)] hover:bg-[var(--bg-elevated)] transition-all duration-150 space-y-1.5 cursor-pointer group"
                     >

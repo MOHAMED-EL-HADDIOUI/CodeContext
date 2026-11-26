@@ -8,6 +8,7 @@ test-results/
 playwright-report/
 .env
 .env.local
+.env.test.local
 .env.*.local
 *.log
 .DS_Store

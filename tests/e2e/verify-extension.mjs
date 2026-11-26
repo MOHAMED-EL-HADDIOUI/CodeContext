@@ -5,7 +5,9 @@ import { chromium } from 'playwright';
 import { zipSync, strToU8 } from 'fflate';
 import AxeBuilder from '@axe-core/playwright';
 
-const EXTENSION_PATH = path.resolve(process.cwd(), '.output', 'chrome-mv3');
+const EXTENSION_PATH = path.resolve(
+  process.env.CC_EXTENSION_PATH || path.join('.output', 'chrome-mv3'),
+);
 const SCREENSHOT_DIR = process.env.CC_SCREENSHOT_DIR || '';
 
 async function saveShot(page, name) {
@@ -15,6 +17,24 @@ async function saveShot(page, name) {
 }
 
 async function assertNoSeriousA11y(page, label) {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.waitForFunction(
+    () =>
+      !Array.from(document.querySelectorAll('[style]')).some(
+        (element) => element instanceof HTMLElement && /^0(?:\.\d+)?$/.test(element.style.opacity),
+      ),
+    { timeout: 5000 },
+  );
+  await page.evaluate(async () => {
+    // Reduced-motion styles must leave all readable content fully opaque.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    for (const element of document.querySelectorAll('[style]')) {
+      if (element instanceof HTMLElement && /^0(?:\.\d+)?$/.test(element.style.opacity)) {
+        throw new Error('Cannot audit a view with unfinished entrance animations.');
+      }
+    }
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
   const results = await new AxeBuilder({ page }).analyze();
   const severe = results.violations.filter(
     (v) => v.impact === 'critical' || v.impact === 'serious',
@@ -41,17 +61,18 @@ async function main() {
       '--no-sandbox',
     ];
 
+    const launchOptions = {
+      channel: 'chromium',
+      headless: true,
+      reducedMotion: 'reduce',
+      args: launchArgs,
+    };
     try {
-      context = await chromium.launchPersistentContext(userDataDir, {
-        channel: 'chromium',
-        headless: true,
-        args: launchArgs,
-      });
+      context = await chromium.launchPersistentContext(userDataDir, launchOptions);
     } catch {
       context = await chromium.launchPersistentContext(userDataDir, {
+        ...launchOptions,
         channel: 'chrome',
-        headless: true,
-        args: launchArgs,
       });
     }
 
@@ -69,43 +90,79 @@ async function main() {
     // 1. Side Panel — Onboarding
     const sidepanel = await context.newPage();
     sidepanel.on('pageerror', (error) => console.error('[panel error]', error));
-    sidepanel.on('console', (message) => { if (message.type() === 'error' || message.type() === 'warning') console.log(`[panel ${message.type()}] ${message.text()}`); });
+    sidepanel.on('console', (message) => {
+      if (message.type() === 'error' || message.type() === 'warning')
+        console.log(`[panel ${message.type()}] ${message.text()}`);
+    });
     await sidepanel.setViewportSize({ width: 420, height: 780 });
     await sidepanel.goto(`chrome-extension://${extensionId}/sidepanel.html`, {
       waitUntil: 'networkidle',
     });
 
-    await sidepanel.getByRole('heading', { name: /Welcome to CodeContext/i }).waitFor({ timeout: 8000 });
+    await sidepanel
+      .getByRole('heading', { name: /Welcome to CodeContext/i })
+      .waitFor({ timeout: 8000 });
     await saveShot(sidepanel, '01-onboarding');
     await assertNoSeriousA11y(sidepanel, 'Onboarding');
 
     // 2. Main Side Panel — Chat
     await sidepanel.getByRole('button', { name: /Skip setup/i }).click();
-    await sidepanel.getByRole('navigation', { name: 'Primary navigation' }).waitFor({ timeout: 5000 });
+    await sidepanel
+      .getByRole('navigation', { name: 'Primary navigation' })
+      .waitFor({ timeout: 5000 });
     await sidepanel.waitForTimeout(220);
 
     // Import an actual ZIP through the production background-indexing route.
     const archive = zipSync({
-      'sample/src/auth.ts': strToU8('export function validateCredentials(token) { return token.length > 8; }'),
-      'sample/src/server.ts': strToU8("import { validateCredentials } from './auth';\nexport function startServer(token) { return validateCredentials(token); }"),
+      'sample/src/auth.ts': strToU8(
+        'export function validateCredentials(token) { return token.length > 8; }',
+      ),
+      'sample/src/server.ts': strToU8(
+        "import { validateCredentials } from './auth';\nexport function startServer(token) { return validateCredentials(token); }",
+      ),
       'sample/README.md': strToU8('# Browser fixture\nLocal-only source.'),
       'sample/.gitignore': strToU8('dist/\n'),
       'sample/dist/ignored.ts': strToU8('export const ignored = true;'),
     });
     await sidepanel.getByRole('button', { name: 'Add repository or local source' }).click();
-    await sidepanel.locator('input[type="file"]').first().setInputFiles({ name: 'browser-fixture.zip', mimeType: 'application/zip', buffer: Buffer.from(archive) });
-    await sidepanel.getByRole('heading', { name: 'Ask browser-fixture' }).waitFor({ timeout: 20000 });
+    await sidepanel
+      .locator('input[type="file"]')
+      .first()
+      .setInputFiles({
+        name: 'browser-fixture.zip',
+        mimeType: 'application/zip',
+        buffer: Buffer.from(archive),
+      });
+    await sidepanel
+      .getByRole('heading', { name: 'Ask browser-fixture' })
+      .waitFor({ timeout: 20000 });
     await sidepanel.getByText('3 indexed', { exact: false }).waitFor({ timeout: 30000 });
     const indexed = await sidepanel.evaluate(async () => {
       const request = indexedDB.open('CodeContextDB');
-      const database = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+      const database = await new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
       const transaction = database.transaction(['repositories', 'files'], 'readonly');
-      const repositories = await new Promise((resolve, reject) => { const get = transaction.objectStore('repositories').getAll(); get.onsuccess = () => resolve(get.result); get.onerror = () => reject(get.error); });
-      const files = await new Promise((resolve, reject) => { const get = transaction.objectStore('files').getAll(); get.onsuccess = () => resolve(get.result); get.onerror = () => reject(get.error); });
+      const repositories = await new Promise((resolve, reject) => {
+        const get = transaction.objectStore('repositories').getAll();
+        get.onsuccess = () => resolve(get.result);
+        get.onerror = () => reject(get.error);
+      });
+      const files = await new Promise((resolve, reject) => {
+        const get = transaction.objectStore('files').getAll();
+        get.onsuccess = () => resolve(get.result);
+        get.onerror = () => reject(get.error);
+      });
       database.close();
       return { repositories, paths: files.map((file) => file.path) };
     });
-    if (indexed.repositories.length !== 1 || !indexed.paths.includes('src/auth.ts') || indexed.paths.includes('dist/ignored.ts')) throw new Error(`Unexpected persisted import: ${JSON.stringify(indexed)}`);
+    if (
+      indexed.repositories.length !== 1 ||
+      !indexed.paths.includes('src/auth.ts') ||
+      indexed.paths.includes('dist/ignored.ts')
+    )
+      throw new Error(`Unexpected persisted import: ${JSON.stringify(indexed)}`);
     console.log('✓ Real ZIP import completed and persisted; .gitignore was enforced');
     await saveShot(sidepanel, '02-local-import');
     await assertNoSeriousA11y(sidepanel, 'Local import');
@@ -120,7 +177,10 @@ async function main() {
 
     await sidepanel.getByRole('button', { name: 'Search', exact: true }).click();
     await sidepanel.getByLabel('Search repository code').fill('validateCredentials');
-    await sidepanel.getByText(/src\/auth\.ts/).first().waitFor({ timeout: 8000 });
+    await sidepanel
+      .getByText(/src\/auth\.ts/)
+      .first()
+      .waitFor({ timeout: 8000 });
     await sidepanel.getByRole('button', { name: 'Pin search', exact: true }).click();
     await sidepanel.getByRole('button', { name: 'Notes', exact: true }).click();
     await sidepanel.getByLabel('Investigation note').fill('Verified local source evidence.');
@@ -141,10 +201,13 @@ async function main() {
     const parser = await sidepanel.evaluate(async () => {
       const response = await fetch(window.chrome.runtime.getURL('manifest.json'));
       const manifest = await response.json();
-      const files = await performance.getEntriesByType('resource').map((entry) => entry.name);
+      const files = [];
       return { manifest, parserResources: files.filter((file) => file.includes('sourceParser')) };
     });
-    console.log('✓ MV3 manifest and parser packaging:', JSON.stringify({ version: parser.manifest.version, parserResources: parser.parserResources }));
+    console.log(
+      '✓ MV3 manifest and parser packaging:',
+      JSON.stringify({ version: parser.manifest.version, parserResources: parser.parserResources }),
+    );
 
     // 2. Main Side Panel — Chat
     await sidepanel.getByRole('button', { name: 'Chat', exact: true }).click();
@@ -166,8 +229,12 @@ async function main() {
     await assertNoSeriousA11y(sidepanel, 'Settings (Dark)');
 
     await sidepanel.getByRole('button', { name: 'Light' }).click();
-    await sidepanel.waitForFunction(() => document.documentElement.getAttribute('data-theme') === 'light');
-    const themeAttr = await sidepanel.evaluate(() => document.documentElement.getAttribute('data-theme'));
+    await sidepanel.waitForFunction(
+      () => document.documentElement.getAttribute('data-theme') === 'light',
+    );
+    const themeAttr = await sidepanel.evaluate(() =>
+      document.documentElement.getAttribute('data-theme'),
+    );
     if (themeAttr !== 'light') {
       throw new Error(`Expected light theme attribute, got "${themeAttr}"`);
     }
@@ -182,15 +249,21 @@ async function main() {
     const popup = await context.newPage();
     await popup.setViewportSize({ width: 360, height: 420 });
     await popup.goto(`chrome-extension://${extensionId}/popup.html`, { waitUntil: 'networkidle' });
-    await popup.getByRole('button', { name: /Open CodeContext Side Panel/i }).waitFor({ timeout: 5000 });
+    await popup
+      .getByRole('button', { name: /Open CodeContext Side Panel/i })
+      .waitFor({ timeout: 5000 });
     await saveShot(popup, '06-popup');
     await assertNoSeriousA11y(popup, 'Popup');
 
     // 6. Options page
     const options = await context.newPage();
     await options.setViewportSize({ width: 1024, height: 820 });
-    await options.goto(`chrome-extension://${extensionId}/options.html`, { waitUntil: 'networkidle' });
-    await options.getByRole('heading', { name: /CodeContext Settings/i }).waitFor({ timeout: 5000 });
+    await options.goto(`chrome-extension://${extensionId}/options.html`, {
+      waitUntil: 'networkidle',
+    });
+    await options
+      .getByRole('heading', { name: /CodeContext Settings/i })
+      .waitFor({ timeout: 5000 });
     await saveShot(options, '07-options');
     await assertNoSeriousA11y(options, 'Options');
 

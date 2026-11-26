@@ -183,14 +183,14 @@ export const App: React.FC = () => {
               />
             </nav>
 
-            {/* Main View with subtle cross-fade */}
+            {/* Transform-only transitions preserve readable text contrast. */}
             <main className="flex-1 min-h-0 overflow-hidden relative">
               <AnimatePresence mode="wait" initial={false}>
                 <motion.div
                   key={activeTab}
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -3 }}
+                  initial={{ y: 4 }}
+                  animate={{ y: 0 }}
+                  exit={{ y: -3 }}
                   transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
                   className="h-full"
                 >
