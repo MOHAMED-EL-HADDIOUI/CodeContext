@@ -12,6 +12,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     maxTokens: 2048,
     contextWindow: 32000,
     enableLocalEmbeddings: false,
+    neuralEmbeddingsEnabled: false,
+    embeddingModelId: 'Xenova/all-MiniLM-L6-v2',
     consentGiven: false,
   },
   indexing: {

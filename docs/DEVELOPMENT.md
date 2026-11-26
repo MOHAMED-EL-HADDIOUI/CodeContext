@@ -20,8 +20,9 @@ pnpm run dev
 - `entrypoints/` — WXT Manifest V3 entrypoints (`background.ts`, `content.ts`, `sidepanel/`, `popup/`, `options/`)
 - `components/` — React UI components (`chat/`, `code/`, `common/`, `onboarding/`, `repository/`, `search/`, `settings/`, `tools/`)
 - `core/` — Pure code-intelligence logic (`parsers/`, `symbols/`, `chunking/`, `retrieval/`, `citations/`, `security/`, `analysis/`)
-- `features/` — Domain workflows (`indexing/`, `ai/`, `utilities/`)
-- `services/` — External & platform adapters (`github/`, `ai/`, `storage/`, `browser/`, `code/`)
+- `features/` — Domain workflows (`indexing/`, `ai/`, `review/`, `investigations/`)
+- `services/` — External & platform adapters (`github/`, `ai/`, `storage/`, `ingestion/`, `browser/`, `code/`)
+- `workers/` — Off-thread Tree-sitter AST parsing and chunking
 - `stores/` — Zustand reactive application store (`useAppStore.ts`)
 - `types/` — Domain & messaging Zod schemas (`index.ts`, `messages.ts`)
 - `tests/` — Vitest unit/integration tests and Playwright browser E2E script
@@ -40,7 +41,13 @@ pnpm run typecheck     # Strict TypeScript checking
 pnpm run lint          # ESLint static analysis
 pnpm test              # Vitest unit & integration suite
 pnpm run build         # Production Chrome MV3 bundle (.output/chrome-mv3)
-pnpm run test:e2e      # Playwright Chromium + axe-core verification
+pnpm run test:e2e      # Production MV3 Chromium workflows, axe checks, and real parser-worker probe
 pnpm run release       # Verified release build + ZIP archive in release/
 pnpm audit             # Dependency vulnerability audit
 ```
+
+## Verification Notes
+
+Run `pnpm run build` before `pnpm run test:e2e`; the browser scripts load `.output/chrome-mv3`, not the development server. The ZIP workflow uses a temporary Chrome profile and does not touch the developer's real extension profile. The parser probe directly runs the emitted worker and expects Tree-sitter symbols rather than accepting structural fallback.
+
+External AI calls and Hugging Face model downloads are not exercised by default. Test those with an explicitly configured provider and origin permission; do not put credentials in source or test fixtures. A real GitHub API test likewise requires an explicitly supplied session token for private sources.

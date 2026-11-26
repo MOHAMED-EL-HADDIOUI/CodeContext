@@ -37,8 +37,16 @@ export const RepositorySchema = z.object({
   indexedAt: z.number().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  // Optional for legacy v1 records; new sources always persist these fields.
+  source: z.enum(['github', 'local-folder', 'local-zip']).optional(),
+  ref: z.string().optional(),
+  scopePath: z.string().optional(),
+  indexScope: z.enum(['repository', 'tree', 'blob']).optional(),
+  localRevision: z.string().optional(),
 });
 export type Repository = z.infer<typeof RepositorySchema>;
+export type RepositorySource = 'github' | 'local-folder' | 'local-zip';
+export type IndexScope = 'repository' | 'tree' | 'blob';
 
 export const RepositoryFileSchema = z.object({
   id: z.string().min(1),
@@ -169,6 +177,8 @@ export const AIConfigurationSchema = z.object({
   maxTokens: z.number().int().min(128).max(32768).default(2048),
   contextWindow: z.number().int().min(2048).max(2000000).default(32000),
   enableLocalEmbeddings: z.boolean().default(false),
+  neuralEmbeddingsEnabled: z.boolean().default(false),
+  embeddingModelId: z.string().default('Xenova/all-MiniLM-L6-v2'),
   consentGiven: z.boolean().default(false),
 });
 export type AIConfiguration = z.infer<typeof AIConfigurationSchema>;
@@ -206,19 +216,20 @@ export const SelectedCodeContextSchema = z.object({
 });
 export type SelectedCodeContext = z.infer<typeof SelectedCodeContextSchema>;
 
-export interface IndexingProgress {
-  repositoryId: string;
-  phase: IndexingStatus;
-  discoveredFiles: number;
-  totalToIndex: number;
-  indexedFiles: number;
-  skippedFiles: number;
-  currentFile?: string;
-  message: string;
-  rateLimitRemaining?: number;
-  rateLimitReset?: number;
-  error?: string;
-}
+export const IndexingProgressSchema = z.object({
+  repositoryId: z.string(),
+  phase: IndexingStatusSchema,
+  discoveredFiles: z.number().int().nonnegative(),
+  totalToIndex: z.number().int().nonnegative(),
+  indexedFiles: z.number().int().nonnegative(),
+  skippedFiles: z.number().int().nonnegative(),
+  currentFile: z.string().optional(),
+  message: z.string(),
+  rateLimitRemaining: z.number().optional(),
+  rateLimitReset: z.number().optional(),
+  error: z.string().optional(),
+});
+export type IndexingProgress = z.infer<typeof IndexingProgressSchema>;
 
 export interface SearchResult {
   chunkId: string;
@@ -240,4 +251,168 @@ export interface DependencyInfo {
   version: string;
   scope: 'dependencies' | 'devDependencies' | 'peerDependencies' | 'python' | 'rust' | 'go';
   sourceFile: string;
+}
+
+export interface IndexJob {
+  id: string;
+  repositoryId: string;
+  kind: 'github' | 'local-folder' | 'local-zip';
+  status: 'queued' | 'running' | 'paused' | 'cancelled' | 'completed' | 'error';
+  phase: IndexingStatus;
+  input: string;
+  pendingFiles: string[];
+  completedFiles: string[];
+  totalFiles: number;
+  processedFiles: number;
+  skippedFiles: number;
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ChangeSetFile {
+  path: string;
+  previousPath?: string;
+  status: 'added' | 'modified' | 'removed' | 'renamed';
+  additions: number;
+  deletions: number;
+  patch?: string;
+  baseSha?: string;
+  headSha?: string;
+}
+
+export interface ChangeSet {
+  id: string;
+  repositoryId: string;
+  kind: 'pull-request' | 'commit' | 'comparison';
+  title: string;
+  url: string;
+  baseRef: string;
+  headRef: string;
+  baseSha: string;
+  headSha: string;
+  files: ChangeSetFile[];
+  additions: number;
+  deletions: number;
+  createdAt: number;
+}
+
+export interface ReviewComment {
+  id: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  severity: 'info' | 'suggestion' | 'warning' | 'critical';
+  title: string;
+  body: string;
+  citation?: SourceCitation;
+}
+
+export interface ReviewReport {
+  id: string;
+  changeSetId: string;
+  repositoryId: string;
+  summary: string;
+  comments: ReviewComment[];
+  citations: SourceCitation[];
+  createdAt: number;
+}
+
+export interface SymbolReference {
+  repositoryId: string;
+  fileId: string;
+  filePath: string;
+  symbolName: string;
+  startLine: number;
+  endLine: number;
+  excerpt: string;
+  relation: 'definition' | 'reference' | 'import';
+  confidence: 'exact' | 'lexical';
+}
+
+export interface DependencyGraphNode {
+  id: string;
+  path: string;
+  language: string;
+  symbolCount: number;
+  inbound: number;
+  outbound: number;
+}
+
+export interface DependencyGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  importName: string;
+  resolution: 'resolved' | 'external' | 'ambiguous';
+}
+
+export interface DependencyGraph {
+  nodes: DependencyGraphNode[];
+  edges: DependencyGraphEdge[];
+  external: string[];
+}
+
+export interface InvestigationItem {
+  id: string;
+  sessionId: string;
+  type: 'file' | 'symbol' | 'search' | 'note';
+  title: string;
+  content: string;
+  repositoryId?: string;
+  filePath?: string;
+  startLine?: number;
+  endLine?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  repositoryIds: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface EmbeddingModelRecord {
+  id: string;
+  name: string;
+  sizeMb: number;
+  status: 'not-downloaded' | 'downloading' | 'ready' | 'error';
+  progress: number;
+  error?: string;
+  updatedAt: number;
+}
+
+export interface NeuralEmbeddingProvider {
+  readonly id: string;
+  embed(text: string): Promise<number[]>;
+  readonly ready: boolean;
+}
+
+export interface RetrievalStage {
+  id: 'analyzing' | 'searching' | 'reading' | 'generating' | 'verifying';
+  status: 'pending' | 'active' | 'complete';
+  detail: string;
+}
+
+export interface RetrievalSource {
+  repositoryId: string;
+  repositoryName: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  score?: number;
+}
+
+export interface TransmissionPreview {
+  provider: string;
+  model: string;
+  endpoint: string;
+  estimatedTokens: number;
+  sourceCount: number;
+  sources: RetrievalSource[];
+  includesSelection: boolean;
+  includesHistory: boolean;
 }

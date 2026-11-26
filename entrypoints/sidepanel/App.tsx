@@ -2,6 +2,8 @@ import React, { useEffect } from 'react';
 import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
 import {
   FolderTree,
+  GitPullRequest,
+  NotebookTabs,
   MessageSquare,
   Moon,
   Search,
@@ -20,6 +22,8 @@ import { OnboardingView } from '../../components/onboarding/OnboardingView';
 import { ExploreView } from '../../components/repository/ExploreView';
 import { RepositoryBar } from '../../components/repository/RepositoryBar';
 import { SearchView } from '../../components/search/SearchView';
+import { ReviewView } from '../../components/review/ReviewView';
+import { NotebooksView } from '../../components/investigations/NotebooksView';
 import { SettingsView } from '../../components/settings/SettingsView';
 import { DevToolsView } from '../../components/tools/DevToolsView';
 import { AI_PROVIDER_PRESETS } from '../../services/ai/types';
@@ -39,6 +43,7 @@ export const App: React.FC = () => {
     initialize,
     setActiveTab,
     setAttachedSelection,
+    refreshIndexingStatus,
     updateAppSettings,
   } = useAppStore();
 
@@ -52,6 +57,14 @@ export const App: React.FC = () => {
     const listener = (rawMessage: unknown) => {
       const msg = validateExtensionMessage(rawMessage);
       if (!msg) return;
+      if (msg.type === 'INDEXING_PROGRESS') {
+        void refreshIndexingStatus();
+        useAppStore.setState({ indexingProgress: msg.progress, isIndexing: ['indexing', 'fetching_metadata', 'fetching_tree'].includes(msg.progress.phase) });
+        if (['ready', 'partial', 'error', 'cancelled'].includes(msg.progress.phase)) {
+          const repository = useAppStore.getState().repositories.find((item) => item.id === msg.progress.repositoryId);
+          if (repository) useAppStore.setState({ activeRepositoryId: repository.id, workspaceRepositoryIds: [repository.id] });
+        }
+      }
       if (msg.type === 'SELECTION_CAPTURED') {
         setAttachedSelection(msg.payload);
         setActiveTab('chat');
@@ -62,7 +75,7 @@ export const App: React.FC = () => {
     return () => {
       chrome.runtime.onMessage.removeListener(listener);
     };
-  }, [setAttachedSelection, setActiveTab]);
+  }, [setAttachedSelection, setActiveTab, refreshIndexingStatus]);
 
   const toggleTheme = () => {
     const next = resolvedTheme === 'dark' ? 'light' : 'dark';
@@ -88,6 +101,8 @@ export const App: React.FC = () => {
     { id: 'chat' as MainNavTab, label: 'Chat', icon: MessageSquare },
     { id: 'explore' as MainNavTab, label: 'Explore', icon: FolderTree },
     { id: 'search' as MainNavTab, label: 'Search', icon: Search },
+    { id: 'review' as MainNavTab, label: 'Review', icon: GitPullRequest },
+    { id: 'notebooks' as MainNavTab, label: 'Notes', icon: NotebookTabs },
     { id: 'tools' as MainNavTab, label: 'Tools', icon: Wrench },
   ];
 
@@ -182,6 +197,8 @@ export const App: React.FC = () => {
                   {activeTab === 'chat' && <ChatView />}
                   {activeTab === 'explore' && <ExploreView />}
                   {activeTab === 'search' && <SearchView />}
+                  {activeTab === 'review' && <ReviewView />}
+                  {activeTab === 'notebooks' && <NotebooksView />}
                   {activeTab === 'tools' && <DevToolsView />}
                   {activeTab === 'settings' && <SettingsView />}
                 </motion.div>

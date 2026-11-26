@@ -12,6 +12,7 @@ export interface SearchQueryOptions {
   directory?: string;
   limit?: number;
   queryVector?: number[];
+  queryVectorModel?: string;
   database?: CodeContextDB;
 }
 
@@ -29,7 +30,7 @@ interface MiniSearchDoc {
 
 const searchIndexCache = new Map<
   string,
-  { count: number; mini: MiniSearch<MiniSearchDoc>; chunkMap: Map<string, CodeChunk> }
+  { count: number; fingerprint: string; mini: MiniSearch<MiniSearchDoc>; chunkMap: Map<string, CodeChunk> }
 >();
 
 export function invalidateSearchCache(repositoryId?: string): void {
@@ -64,7 +65,8 @@ async function getOrBuildMiniSearch(
 ): Promise<{ mini: MiniSearch<MiniSearchDoc>; chunkMap: Map<string, CodeChunk> }> {
   const chunks = await database.chunks.where('repositoryId').equals(repositoryId).toArray();
   const cached = searchIndexCache.get(repositoryId);
-  if (cached && cached.count === chunks.length) {
+  const fingerprint = chunks.map((chunk) => chunk.id).join('|');
+  if (cached && cached.count === chunks.length && cached.fingerprint === fingerprint) {
     return { mini: cached.mini, chunkMap: cached.chunkMap };
   }
 
@@ -98,7 +100,7 @@ async function getOrBuildMiniSearch(
   }
 
   mini.addAll(docs);
-  searchIndexCache.set(repositoryId, { count: chunks.length, mini, chunkMap });
+  searchIndexCache.set(repositoryId, { count: chunks.length, fingerprint, mini, chunkMap });
   return { mini, chunkMap };
 }
 
@@ -391,6 +393,8 @@ export async function searchRepository(options: SearchQueryOptions): Promise<Sea
 
     for (const emb of embeddings) {
       const chunk = chunkMap.get(emb.chunkId);
+      const vectorModel = options.queryVectorModel ?? 'local-char-ngram-hash-128d';
+      if (emb.model !== vectorModel || emb.vector.length !== options.queryVector.length) continue;
       if (!chunk) continue;
       if (!matchesFilters(chunk.filePath, chunk.language, options.language, options.directory)) {
         continue;

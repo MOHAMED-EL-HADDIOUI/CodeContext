@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SelectedCodeContextSchema } from './index';
+import { SelectedCodeContextSchema, IndexingLimitsSchema, IndexingProgressSchema } from './index';
 
 export const ExtensionMessageSchema = z.discriminatedUnion('type', [
   z.object({
@@ -26,6 +26,33 @@ export const ExtensionMessageSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('PING'),
+  }),
+  z.object({
+    type: z.literal('INDEX_GITHUB'),
+    urlOrSlug: z.string().min(1).max(3000),
+    limits: IndexingLimitsSchema,
+  }),
+  z.object({
+    type: z.literal('INDEX_LOCAL_ZIP'),
+    name: z.string().min(1).max(300),
+    files: z.array(z.object({ path: z.string().min(1).max(4000), content: z.string().max(2 * 1024 * 1024) })).max(10000),
+    limits: IndexingLimitsSchema,
+  }),
+  z.object({
+    type: z.literal('CANCEL_INDEXING'),
+    repositoryId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('RESUME_INDEXING'),
+    repositoryId: z.string().min(1),
+    limits: IndexingLimitsSchema,
+  }),
+  z.object({
+    type: z.literal('INDEXING_PROGRESS'),
+    progress: IndexingProgressSchema,
+  }),
+  z.object({
+    type: z.literal('GET_INDEXING_STATUS'),
   }),
 ]);
 

@@ -2,6 +2,8 @@ import { defineBackground } from 'wxt/utils/define-background';
 import { SelectedCodeContextSchema, type SelectedCodeContext } from '../types';
 import { validateExtensionMessage } from '../types/messages';
 import { detectLanguageFromSnippet } from '../core/parsers/language';
+import { startBackgroundIndexing, startBackgroundLocalZip, cancelBackgroundIndexing, resumeBackgroundIndexing, recoverInterruptedIndexing } from '../services/ingestion/backgroundIndexer';
+import { db } from '../services/storage/db';
 
 const MENU_ASK_SELECTION = 'codecontext-ask-selection';
 const MENU_ASK_DOCS = 'codecontext-ask-docs';
@@ -56,6 +58,7 @@ async function flashConfirmationBadge(): Promise<void> {
 }
 
 export default defineBackground(() => {
+  void recoverInterruptedIndexing();
   chrome.runtime.onInstalled.addListener(() => {
     registerContextMenus();
   });
@@ -244,6 +247,41 @@ export default defineBackground(() => {
           case 'SELECTION_CAPTURED': {
             await savePendingSelection(message.payload);
             sendResponse({ ok: true });
+            break;
+          }
+          case 'INDEX_GITHUB': {
+            void startBackgroundIndexing(message.urlOrSlug, message.limits).catch((error) => {
+              console.error('Background indexing failed:', error instanceof Error ? error.message : error);
+            });
+            sendResponse({ ok: true });
+            break;
+          }
+          case 'INDEX_LOCAL_ZIP': {
+            void startBackgroundLocalZip(message.name, message.files, message.limits).catch((error) => {
+              console.error('Background ZIP indexing failed:', error instanceof Error ? error.message : error);
+            });
+            sendResponse({ ok: true });
+            break;
+          }
+          case 'CANCEL_INDEXING': {
+            cancelBackgroundIndexing(message.repositoryId);
+            sendResponse({ ok: true });
+            break;
+          }
+          case 'RESUME_INDEXING': {
+            void resumeBackgroundIndexing(message.repositoryId, message.limits).catch(async (error) => {
+              const text = error instanceof Error ? error.message : 'Background indexing resume failed.';
+              await db.repositories.update(message.repositoryId, { indexingStatus: 'error', indexingError: text, updatedAt: Date.now() });
+              await chrome.runtime.sendMessage({ type: 'INDEXING_PROGRESS', progress: { repositoryId: message.repositoryId, phase: 'error', discoveredFiles: 0, totalToIndex: 0, indexedFiles: 0, skippedFiles: 0, message: text, error: text } }).catch(() => undefined);
+              console.error('Background indexing resume failed:', text);
+            });
+            sendResponse({ ok: true });
+            break;
+          }
+          case 'GET_INDEXING_STATUS': {
+            const jobs = await db.indexJobs.toArray();
+            const repositories = await db.repositories.toArray();
+            sendResponse({ ok: true, jobs, repositories });
             break;
           }
         }

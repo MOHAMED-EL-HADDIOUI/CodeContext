@@ -11,15 +11,20 @@ CodeContext is designed as a local-first Chrome extension. We do not operate a t
 2. **Webpage Selections You Explicitly Trigger**:
    - CodeContext never silently scrapes browsing history or unrelated tabs.
    - Selected text is captured **only** when you explicitly invoke the context menu (`Ask CodeContext about this selection`), click **Capture** in Chat, or select code inside the local Code Viewer.
-3. **Configuration & Session Credentials**:
+3. **Local Folders and ZIP Archives You Explicitly Choose**:
+   - Selected local source is parsed locally and stored in IndexedDB for offline exploration and resumable indexing. `.gitignore` is honored; repository code is never executed. Corrupt, oversized, binary, or path-traversal archive entries are rejected or skipped.
+   - Local folders and ZIPs do not require GitHub credentials. Local-source citations never invent a GitHub URL.
+4. **Configuration & Session Credentials**:
    - Non-sensitive settings (theme, provider URL, model ID, indexing limits) are stored in `chrome.storage.local`.
    - Optional AI API keys and GitHub tokens are stored only in `chrome.storage.session` and cleared when the browser closes.
 
 ## Third-Party Data Transmission
 
-- **Without an AI Provider**: Zero data leaves your browser other than direct GitHub fetches for repositories you request to index.
-- **With an AI Provider Configured**: Before your first AI query, CodeContext displays an explicit consent prompt. Once approved, only your question, recent chat turns, and the top retrieved code snippets or attached selection are sent directly from your browser to the AI API endpoint you configured (e.g., OpenAI, Anthropic, NVIDIA NIM, or your own localhost server).
-- CodeContext never transmits JWTs inspected in Developer Utilities, local search queries, or browsing history to any remote service.
+- **Without an AI Provider**: No source is sent to an AI endpoint. Explicit GitHub indexing and optional model downloads are the only repository/model network operations.
+- **With an AI Provider Configured**: Before the first AI chat or review, CodeContext shows an explicit consent prompt with the selected endpoint, estimated size, included sources, and an expandable exact payload. Once approved, only the question/review prompt, recent chat turns where applicable, selected code, and budgeted retrieved excerpts are sent directly to that AI endpoint. Disabling the persisted consent setting restores the gate for subsequent requests.
+- CodeContext never transmits JWTs inspected in Developer Utilities, standalone local search queries, or browsing history to any remote service.
+- **Optional neural embeddings** are downloaded only after an explicit action and Hugging Face origin permission. Model files may be cached by Transformers.js for later offline inference. Questions and repository code are processed locally and are not sent to Hugging Face; enabling an AI provider remains a separate consent decision.
+- Notebook and review exports are user-initiated local downloads and can contain source excerpts, conversations, or private repository locations. Inspect them before sharing.
 
 ## User Control & Data Deletion
 

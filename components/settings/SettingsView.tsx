@@ -26,6 +26,7 @@ import {
 } from '../../services/storage/credentials';
 import { exportUserData, getStorageStats } from '../../services/storage/db';
 import { useAppStore } from '../../stores/useAppStore';
+import { EmbeddingSettings } from './EmbeddingSettings';
 import {
   AlertBanner,
   Badge,
@@ -514,17 +515,7 @@ export const SettingsView: React.FC = () => {
             description="Allow sending retrieved code excerpts to your configured AI endpoint."
           />
 
-          <SwitchControl
-            checked={settings.ai.enableLocalEmbeddings}
-            onChange={(checked) =>
-              void updateAppSettings((curr) => ({
-                ...curr,
-                ai: { ...curr.ai, enableLocalEmbeddings: checked },
-              }))
-            }
-            label="Local semantic vector reranking"
-            description="Compute lightweight local vectors in IndexedDB to boost hybrid search."
-          />
+          <EmbeddingSettings />
         </div>
       </section>
 

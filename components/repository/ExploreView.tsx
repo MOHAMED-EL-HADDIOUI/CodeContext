@@ -17,6 +17,8 @@ import { extractDependenciesFromFiles } from '../../core/analysis/dependencies';
 import { db } from '../../services/storage/db';
 import { useAppStore } from '../../stores/useAppStore';
 import { CodeViewer } from '../code/CodeViewer';
+import { DependencyGraphView } from './DependencyGraphView';
+import { VirtualTree } from '../common/VirtualTree';
 import { MarkdownView } from '../common/MarkdownView';
 import {
   Badge,
@@ -27,7 +29,7 @@ import {
   getLanguageColor,
 } from '../common/UIPrimitives';
 
-type ExploreSubTab = 'files' | 'symbols' | 'readme' | 'deps' | 'overview';
+type ExploreSubTab = 'files' | 'symbols' | 'readme' | 'deps' | 'overview' | 'graph';
 
 interface TreeNode {
   name: string;
@@ -94,11 +96,10 @@ function buildFileTree(files: RepositoryFile[]): TreeNode[] {
 const TreeRow: React.FC<{
   node: TreeNode;
   depth: number;
-  expandedDirs: Set<string>;
+  isOpen: boolean;
   toggleDir: (path: string) => void;
   onOpenFile: (path: string) => void;
-}> = ({ node, depth, expandedDirs, toggleDir, onOpenFile }) => {
-  const isOpen = expandedDirs.has(node.path);
+}> = ({ node, depth, isOpen, toggleDir, onOpenFile }) => {
 
   if (node.isDir) {
     return (
@@ -124,20 +125,6 @@ const TreeRow: React.FC<{
             {node.children.length}
           </span>
         </button>
-        {isOpen && (
-          <div className="relative">
-            {node.children.map((child) => (
-              <TreeRow
-                key={child.path}
-                node={child}
-                depth={depth + 1}
-                expandedDirs={expandedDirs}
-                toggleDir={toggleDir}
-                onOpenFile={onOpenFile}
-              />
-            ))}
-          </div>
-        )}
       </div>
     );
   }
@@ -249,6 +236,17 @@ export const ExploreView: React.FC = () => {
   }, [files, fileFilter, langFilter]);
 
   const fileTree = useMemo(() => buildFileTree(filteredFiles), [filteredFiles]);
+  const visibleTree = useMemo(() => {
+    const rows: Array<{ node: TreeNode; depth: number }> = [];
+    const visit = (nodes: TreeNode[], depth: number) => {
+      for (const node of nodes) {
+        rows.push({ node, depth });
+        if (node.isDir && expandedDirs.has(node.path)) visit(node.children, depth + 1);
+      }
+    };
+    visit(fileTree, 0);
+    return rows;
+  }, [fileTree, expandedDirs]);
 
   const filteredSymbols = useMemo(() => {
     const q = symbolFilter.trim().toLowerCase();
@@ -259,8 +257,7 @@ export const ExploreView: React.FC = () => {
           return false;
         }
         return true;
-      })
-      .slice(0, 200);
+      });
   }, [symbols, symbolFilter, symbolKind]);
 
   const dependencies: DependencyInfo[] = useMemo(
@@ -315,6 +312,7 @@ export const ExploreView: React.FC = () => {
     { id: 'readme', label: 'README', icon: BookOpen },
     { id: 'deps', label: 'Deps', icon: Package, count: dependencies.length },
     { id: 'overview', label: 'Overview', icon: Layers },
+    { id: 'graph', label: 'Graph', icon: Boxes },
   ];
 
   return (
@@ -344,6 +342,9 @@ export const ExploreView: React.FC = () => {
         })}
       </div>
 
+      {/* GRAPH TAB */}
+      {subTab === 'graph' && <div className="flex-1 overflow-auto p-2.5"><DependencyGraphView /></div>}
+
       {/* FILES TAB */}
       {subTab === 'files' && (
         <div className="flex flex-col flex-1 min-h-0">
@@ -369,50 +370,16 @@ export const ExploreView: React.FC = () => {
             </Select>
           </div>
 
-          <div className="flex-1 overflow-auto p-1.5 space-y-0.5">
-            {fileFilter.trim() ? (
-              filteredFiles.length === 0 ? (
-                <EmptyState
-                  icon={FileCode2}
-                  title="No matching files"
-                  description={`No files matched "${fileFilter}". Try a shorter path fragment.`}
-                />
-              ) : (
-                filteredFiles.slice(0, 150).map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => openFileInViewer(activeRepo.id, f.path)}
-                    className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-left rounded-lg hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className="w-2 h-2 rounded-full shrink-0"
-                        style={{ backgroundColor: getLanguageColor(f.language) }}
-                      />
-                      <span className="font-mono text-[12px] truncate text-[var(--text-primary)]">
-                        {f.path}
-                      </span>
-                    </div>
-                    <Badge tone={f.indexed ? 'neutral' : 'warning'}>
-                      {f.indexed ? f.language : 'skipped'}
-                    </Badge>
-                  </button>
-                ))
-              )
-            ) : (
-              fileTree.map((node) => (
-                <TreeRow
-                  key={node.path}
-                  node={node}
-                  depth={0}
-                  expandedDirs={expandedDirs}
-                  toggleDir={toggleDir}
-                  onOpenFile={(path) => openFileInViewer(activeRepo.id, path)}
-                />
-              ))
-            )}
-          </div>
+          <VirtualTree
+            items={fileFilter.trim() ? filteredFiles.map((file) => ({ node: { name: file.name, path: file.path, isDir: false, file, children: [] }, depth: 0 })) : visibleTree}
+            itemHeight={30}
+            label="Repository files"
+            className="p-1.5"
+            getKey={(row) => row.node.path}
+            empty={<EmptyState icon={FileCode2} title="No matching files" description={`No files matched "${fileFilter}". Try a shorter path fragment.`} />}
+          >
+            {(row) => <TreeRow node={row.node} depth={row.depth} isOpen={expandedDirs.has(row.node.path)} toggleDir={toggleDir} onOpenFile={(path) => openFileInViewer(activeRepo.id, path)} />}
+          </VirtualTree>
         </div>
       )}
 
@@ -442,40 +409,21 @@ export const ExploreView: React.FC = () => {
             </Select>
           </div>
 
-          <div className="flex-1 overflow-auto p-2 space-y-1.5">
-            {filteredSymbols.length === 0 ? (
-              <EmptyState
-                icon={Code2}
-                title="No matching symbols"
-                description="Try another symbol name or switch the kind filter back to All."
-              />
-            ) : (
-              filteredSymbols.map((sym) => (
-                <button
-                  key={sym.id}
-                  type="button"
-                  onClick={() => openFileInViewer(activeRepo.id, sym.filePath, sym.startLine, sym.endLine)}
-                  className="w-full cc-card rounded-lg px-3 py-2 text-left hover:border-[var(--accent-border)] hover:bg-[var(--bg-elevated)] transition-all cursor-pointer space-y-1"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-[12px] font-semibold text-[var(--text-primary)] truncate">
-                      {sym.parentSymbol ? `${sym.parentSymbol}.${sym.name}` : sym.name}
-                    </span>
-                    <Badge tone={sym.kind === 'class' || sym.kind === 'interface' ? 'accent' : 'neutral'}>
-                      {sym.kind}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 text-[11px] text-[var(--text-muted)]">
-                    <span className="font-mono truncate">{sym.filePath}</span>
-                    <span className="font-mono tabular-nums shrink-0">
-                      L{sym.startLine}
-                      {sym.endLine > sym.startLine ? `–${sym.endLine}` : ''}
-                    </span>
-                  </div>
-                </button>
-              ))
+          <VirtualTree
+            items={filteredSymbols}
+            itemHeight={60}
+            label="Repository symbols"
+            className="p-2"
+            getKey={(symbol) => symbol.id}
+            empty={<EmptyState icon={Code2} title="No matching symbols" description="Try another symbol name or switch the kind filter back to All." />}
+          >
+            {(sym) => (
+              <button type="button" onClick={() => openFileInViewer(activeRepo.id, sym.filePath, sym.startLine, sym.endLine)} className="w-full cc-card rounded-lg px-3 py-2 text-left hover:border-[var(--accent-border)] hover:bg-[var(--bg-elevated)] transition-all cursor-pointer space-y-1">
+                <div className="flex items-center justify-between gap-2"><span className="font-mono text-[12px] font-semibold text-[var(--text-primary)] truncate">{sym.parentSymbol ? `${sym.parentSymbol}.${sym.name}` : sym.name}</span><Badge tone={sym.kind === 'class' || sym.kind === 'interface' ? 'accent' : 'neutral'}>{sym.kind}</Badge></div>
+                <div className="flex items-center justify-between gap-2 text-[11px] text-[var(--text-muted)]"><span className="font-mono truncate">{sym.filePath}</span><span className="font-mono tabular-nums shrink-0">L{sym.startLine}{sym.endLine > sym.startLine ? `–${sym.endLine}` : ''}</span></div>
+              </button>
             )}
-          </div>
+          </VirtualTree>
         </div>
       )}
 

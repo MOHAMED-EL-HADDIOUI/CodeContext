@@ -33,6 +33,11 @@ Source repositories, READMEs, code comments, and webpage selections are untruste
 ### 6. Message Validation
 - Every `chrome.runtime` message is validated against a strict Zod discriminated union (`ExtensionMessageSchema`) and checked for matching `sender.id === chrome.runtime.id`.
 
+- **Optional neural model downloads** require an explicit user action and Hugging Face origin permission. Repository code and questions are not sent to Hugging Face; only model artifacts are downloaded and cached for local inference.
+- ZIP ingestion enforces entry/expanded-size limits, rejects path traversal and binary content, and applies `.gitignore`. Source files are treated as strings for parsing and never executed.
+- Chat and review payloads have explicit consent gates and user-visible transmission previews. Local source citations do not create remote source URLs.
+- Exported notebooks/reviews may contain private source or repository locations; exports are user-initiated and credentials are excluded.
+
 ## Reporting Security Issues
 
 If you discover a vulnerability, please avoid posting live credentials or exploit payloads publicly and report directly to the project maintainer with reproduction steps.

@@ -25,14 +25,14 @@ export function buildSourceContexts(
       endLine: chunk.endLine,
       excerpt: excerptLines.length > 420 ? `${excerptLines.slice(0, 420)}…` : excerptLines,
       symbolName: chunk.symbolName,
-      githubUrl: buildGitHubBlobUrl(
+      githubUrl: (repository.source ?? 'github') === 'github' ? buildGitHubBlobUrl(
         repository.owner,
         repository.name,
         repository.commitSha,
         chunk.filePath,
         chunk.startLine,
         chunk.endLine,
-      ),
+      ) : undefined,
     };
     return {
       refId: `S${idx + 1}`,

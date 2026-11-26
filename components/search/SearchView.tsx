@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Code2, FileCode2, Search as SearchIcon, Sparkles, X } from 'lucide-react';
 import type { SearchResult } from '../../types';
+import { getConfiguredEmbeddingProvider } from '../../core/retrieval/neuralEmbeddings';
 import { computeLocalVector } from '../../core/retrieval/embeddings';
 import { searchRepository, type SearchCategory } from '../../core/retrieval/search';
 import { db } from '../../services/storage/db';
@@ -21,6 +22,7 @@ export const SearchView: React.FC = () => {
     settings,
     openFileInViewer,
     buildLocalEmbeddings,
+    pinInvestigationItem,
   } = useAppStore();
 
   const activeRepo = repositories.find((r) => r.id === activeRepositoryId) ?? null;
@@ -74,10 +76,9 @@ export const SearchView: React.FC = () => {
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
-        const queryVector =
-          settings.ai.enableLocalEmbeddings && embeddingCount > 0
-            ? computeLocalVector(query)
-            : undefined;
+        const neural = settings.ai.neuralEmbeddingsEnabled ? getConfiguredEmbeddingProvider() : null;
+        const queryVector = neural?.ready ? await neural.embed(query) : settings.ai.enableLocalEmbeddings && embeddingCount > 0 ? computeLocalVector(query) : undefined;
+        const queryVectorModel = neural?.ready ? neural.id : 'local-char-ngram-hash-128d';
         const hits = await searchRepository({
           repositoryId: activeRepoId,
           query,
@@ -86,6 +87,7 @@ export const SearchView: React.FC = () => {
           directory,
           limit: 30,
           queryVector,
+          queryVectorModel,
         });
         if (!cancelled) setResults(hits);
       } finally {
@@ -104,6 +106,7 @@ export const SearchView: React.FC = () => {
     language,
     directory,
     settings.ai.enableLocalEmbeddings,
+    settings.ai.neuralEmbeddingsEnabled,
     embeddingCount,
   ]);
 
@@ -182,6 +185,7 @@ export const SearchView: React.FC = () => {
             ))}
           </div>
 
+          {query.trim() && <Button size="xs" variant="ghost" onClick={() => void pinInvestigationItem({ type: 'search', title: `Search: ${query}`, content: `${category} · ${language} · ${directory}\n\n${results.slice(0, 10).map((result) => `${result.filePath}:${result.startLine}-${result.endLine}`).join('\n')}`, repositoryId: activeRepoId })}>Pin search</Button>}
           {query.trim() && !searching && (
             <span className="text-[10.5px] text-[var(--text-muted)] tabular-nums">
               {results.length} result{results.length === 1 ? '' : 's'}

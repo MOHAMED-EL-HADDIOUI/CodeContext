@@ -23,6 +23,8 @@ const AI_CONFIG: AIConfiguration = {
   maxTokens: 1024,
   contextWindow: 16000,
   enableLocalEmbeddings: true,
+  neuralEmbeddingsEnabled: false,
+  embeddingModelId: 'Xenova/all-MiniLM-L6-v2',
   consentGiven: true,
 };
 

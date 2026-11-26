@@ -1,4 +1,5 @@
 import { Octokit } from '@octokit/rest';
+import type { RawChangeSet } from './changes';
 
 export type GitHubErrorCode =
   | 'NOT_FOUND'
@@ -40,6 +41,7 @@ export interface GitHubRepoMetadata {
   url: string;
   description?: string;
   defaultBranch: string;
+  resolvedRef?: string;
   commitSha: string;
   languages: Record<string, number>;
   stars: number;
@@ -170,11 +172,12 @@ export class GitHubClient {
       });
 
       const branch = refOverride || repoResp.data.default_branch || 'main';
+      const resolved = await this.resolveRef(owner, repo, branch, signal);
       const [branchResp, langResp] = await Promise.all([
-        this.octokit.repos.getBranch({
+        this.octokit.repos.getCommit({
           owner,
           repo,
-          branch,
+          ref: resolved.ref,
           request: { signal },
         }),
         this.octokit.repos
@@ -192,8 +195,9 @@ export class GitHubClient {
         fullName: repoResp.data.full_name,
         url: repoResp.data.html_url,
         description: repoResp.data.description ?? undefined,
-        defaultBranch: branch,
-        commitSha: branchResp.data.commit.sha,
+        defaultBranch: repoResp.data.default_branch || 'main',
+        resolvedRef: resolved.ref,
+        commitSha: branchResp.data.sha,
         languages: langResp.data,
         stars: repoResp.data.stargazers_count ?? 0,
         isPrivate: Boolean(repoResp.data.private),
@@ -251,6 +255,58 @@ export class GitHubClient {
    * to avoid exhausting GitHub REST API rate limits (60 req/hr unauthenticated).
    * For private repositories (or fallback), uses the Git Blob API with Base64 decoding.
    */
+  async getPullRequest(owner: string, repo: string, number: number, signal?: AbortSignal) {
+    return (await this.octokit.pulls.get({ owner, repo, pull_number: number, request: { signal } })).data;
+  }
+
+  async resolvePathRef(owner: string, repo: string, ref: string, subPath: string, signal?: AbortSignal): Promise<string | null> {
+    try {
+      await this.octokit.repos.getContent({ owner, repo, ref, path: subPath, request: { signal } });
+      return ref;
+    } catch (error) {
+      if ((error as { status?: number }).status === 404) return null;
+      throw error;
+    }
+  }
+
+  async getPullRequestFiles(owner: string, repo: string, number: number, signal?: AbortSignal) {
+    const files: RawChangeSet['files'] = [];
+    for (let page = 1; page <= 10; page++) {
+      const response = await this.octokit.pulls.listFiles({ owner, repo, pull_number: number, per_page: 100, page, request: { signal } });
+      files.push(...response.data.map((file) => ({
+        filename: file.filename,
+        previous_filename: file.previous_filename,
+        status: file.status,
+        additions: file.additions,
+        deletions: file.deletions,
+        patch: file.patch,
+        sha: file.sha ?? undefined,
+      })));
+      if (response.data.length < 100) break;
+    }
+    return files;
+  }
+
+  async getCommit(owner: string, repo: string, ref: string, signal?: AbortSignal) {
+    return (await this.octokit.repos.getCommit({ owner, repo, ref, request: { signal } })).data;
+  }
+
+  async compareCommits(owner: string, repo: string, base: string, head: string, signal?: AbortSignal) {
+    return (await this.octokit.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${base}...${head}`, request: { signal } })).data;
+  }
+
+  async resolveRef(owner: string, repo: string, ref: string, signal?: AbortSignal): Promise<{ ref: string; sha: string }> {
+    try {
+      const response = await this.octokit.git.getRef({ owner, repo, ref: `heads/${ref}`, request: { signal } });
+      return { ref, sha: response.data.object.sha };
+    } catch (error) {
+      // Commit URLs and short SHA references have no heads/<ref> entry.
+      const err = error as { status?: number };
+      if (err.status !== 404) throw error;
+      return { ref, sha: await this.getCommit(owner, repo, ref, signal).then((commit) => commit.sha) };
+    }
+  }
+
   async getFileContent(
     owner: string,
     repo: string,

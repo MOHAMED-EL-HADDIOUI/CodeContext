@@ -1,28 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ArrowLeft,
-  Check,
-  Code2,
-  Copy,
-  ExternalLink,
-  MessageSquarePlus,
-  Search,
-  Sparkles,
-} from 'lucide-react';
-import type { CodeSymbol, Repository, RepositoryFile } from '../../types';
+import { ArrowLeft, Bookmark, Check, Code2, Copy, ExternalLink, MessageSquarePlus, Search, X } from 'lucide-react';
+import type { CodeSymbol, Repository, RepositoryFile, SymbolReference } from '../../types';
 import { highlightCodeToLines } from '../../services/code/highlighter';
 import { buildGitHubBlobUrl } from '../../services/github/urlParser';
+import { findSymbolReferences } from '../../core/analysis/symbolGraph';
 import { db } from '../../services/storage/db';
 import { useAppStore } from '../../stores/useAppStore';
-import {
-  Badge,
-  Button,
-  EmptyState,
-  IconButton,
-  Input,
-  Select,
-  getLanguageColor,
-} from '../common/UIPrimitives';
+import { Badge, Button, EmptyState, IconButton, Input, Select, getLanguageColor } from '../common/UIPrimitives';
+import { VirtualList } from '../common/VirtualList';
 
 interface CodeViewerProps {
   repository: Repository;
@@ -32,304 +17,103 @@ interface CodeViewerProps {
   onBack: () => void;
 }
 
-export const CodeViewer: React.FC<CodeViewerProps> = ({
-  repository,
-  file,
-  highlightStartLine,
-  highlightEndLine,
-  onBack,
-}) => {
-  const { resolvedTheme, setAttachedSelection, setActiveTab, setChatMode } = useAppStore();
+export const CodeViewer: React.FC<CodeViewerProps> = ({ repository, file, highlightStartLine, highlightEndLine, onBack }) => {
+  const { resolvedTheme, setAttachedSelection, setActiveTab, setChatMode, openFileInViewer, pinInvestigationItem } = useAppStore();
   const [highlightedLines, setHighlightedLines] = useState<string[] | null>(null);
   const [symbols, setSymbols] = useState<CodeSymbol[]>([]);
   const [findQuery, setFindQuery] = useState('');
   const [showFind, setShowFind] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [activeRange, setActiveRange] = useState<{ start?: number; end?: number }>({
-    start: highlightStartLine,
-    end: highlightEndLine ?? highlightStartLine,
-  });
-  const [selectedSnippet, setSelectedSnippet] = useState<string>('');
-
+  const [activeRange, setActiveRange] = useState<{ start?: number; end?: number }>({ start: highlightStartLine, end: highlightEndLine ?? highlightStartLine });
+  const [selectedSnippet, setSelectedSnippet] = useState('');
+  const [references, setReferences] = useState<SymbolReference[]>([]);
+  const [inspectedSymbol, setInspectedSymbol] = useState<string | null>(null);
+  const [pinned, setPinned] = useState(false);
+  const [viewportHeight, setViewportHeight] = useState(550);
   const codeContainerRef = useRef<HTMLDivElement>(null);
   const rawLines = useMemo(() => (file.content ?? '').split(/\r?\n/), [file.content]);
+  const githubUrl = (repository.source ?? 'github') === 'github' ? buildGitHubBlobUrl(repository.owner, repository.name, repository.commitSha, file.path, activeRange.start, activeRange.end) : undefined;
 
   useEffect(() => {
-    setActiveRange({
-      start: highlightStartLine,
-      end: highlightEndLine ?? highlightStartLine,
-    });
+    setActiveRange({ start: highlightStartLine, end: highlightEndLine ?? highlightStartLine });
+    setReferences([]); setInspectedSymbol(null);
   }, [file.id, highlightStartLine, highlightEndLine]);
 
   useEffect(() => {
     let cancelled = false;
     setHighlightedLines(null);
-    if (file.content) {
-      highlightCodeToLines(file.content, file.language, resolvedTheme).then((lines) => {
-        if (!cancelled) setHighlightedLines(lines);
-      });
-    }
-    db.symbols
-      .where('fileId')
-      .equals(file.id)
-      .toArray()
-      .then((syms) => {
-        if (!cancelled) {
-          setSymbols(
-            syms.filter((s) => s.kind !== 'import').sort((a, b) => a.startLine - b.startLine),
-          );
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
+    if (file.content) void highlightCodeToLines(file.content, file.language, resolvedTheme).then((lines) => { if (!cancelled) setHighlightedLines(lines); });
+    void db.symbols.where('fileId').equals(file.id).toArray().then((items) => {
+      if (!cancelled) setSymbols(items.filter((item) => item.kind !== 'import').sort((a, b) => a.startLine - b.startLine));
+    });
+    return () => { cancelled = true; };
   }, [file.id, file.content, file.language, resolvedTheme]);
 
   useEffect(() => {
-    if (!activeRange.start) return;
-    const el = codeContainerRef.current?.querySelector(`[data-line="${activeRange.start}"]`);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, [activeRange.start, file.id, highlightedLines]);
+    const container = codeContainerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver(() => setViewportHeight(Math.max(100, container.clientHeight)));
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   const matchingLineNumbers = useMemo(() => {
-    const q = findQuery.trim().toLowerCase();
-    if (!q) return new Set<number>();
-    const set = new Set<number>();
-    rawLines.forEach((line, idx) => {
-      if (line.toLowerCase().includes(q)) set.add(idx + 1);
-    });
-    return set;
+    const query = findQuery.trim().toLowerCase();
+    if (!query) return new Set<number>();
+    return new Set(rawLines.flatMap((line, index) => line.toLowerCase().includes(query) ? [index + 1] : []));
   }, [findQuery, rawLines]);
 
-  const handleCopy = async () => {
-    if (!file.content) return;
-    await navigator.clipboard.writeText(file.content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
-  };
-
   const handleMouseUp = () => {
-    const sel = window.getSelection()?.toString().trim() ?? '';
-    setSelectedSnippet(sel);
+    const selection = window.getSelection()?.toString().trim() ?? '';
+    setSelectedSnippet(selection);
   };
 
-  const handleAskSelection = () => {
-    if (!selectedSnippet) return;
-    setAttachedSelection({
-      text: selectedSnippet,
-      filePath: file.path,
-      language: file.language,
-      sourceUrl: buildGitHubBlobUrl(
-        repository.owner,
-        repository.name,
-        repository.commitSha,
-        file.path,
-        activeRange.start,
-        activeRange.end,
-      ),
-      capturedAt: Date.now(),
-      kind: 'code',
-    });
-    setChatMode('explain_selection');
-    setActiveTab('chat');
+  const inspectAtLine = async (lineNumber: number, event: React.MouseEvent<HTMLTableRowElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.closest('button') || window.getSelection()?.toString()) return;
+    setActiveRange({ start: lineNumber, end: lineNumber });
+    const text = rawLines[lineNumber - 1] ?? '';
+    const rect = (target as HTMLElement).getBoundingClientRect();
+    const offset = Math.max(0, Math.min(text.length, Math.floor((event.clientX - rect.left) / 7)));
+    const before = text.slice(0, offset).match(/[A-Za-z_$][\w$]*$/)?.[0] ?? '';
+    const after = text.slice(offset).match(/^[\w$]*/)?.[0] ?? '';
+    const symbol = `${before}${after}`;
+    if (symbol.length < 2) return;
+    setInspectedSymbol(symbol);
+    setReferences(await findSymbolReferences({ repositoryId: repository.id, symbolName: symbol, limit: 60 }));
   };
-
-  const handleAskAboutFile = () => {
-    setChatMode('explain_file');
-    setActiveTab('chat');
-  };
-
-  const githubUrl = buildGitHubBlobUrl(
-    repository.owner,
-    repository.name,
-    repository.commitSha,
-    file.path,
-    activeRange.start,
-    activeRange.end,
-  );
 
   return (
-    <div className="flex flex-col h-full bg-[var(--bg-code)]">
-      {/* File Header Toolbar */}
-      <div className="flex items-center justify-between gap-2 px-2.5 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <IconButton size="xs" onClick={onBack} aria-label="Back to file tree" title="Back to file tree">
-            <ArrowLeft className="w-3.5 h-3.5" />
-          </IconButton>
-          <span
-            className="w-2 h-2 rounded-full shrink-0"
-            style={{ backgroundColor: getLanguageColor(file.language) }}
-          />
-          <span
-            className="font-mono text-[12px] font-semibold truncate text-[var(--text-primary)]"
-            title={file.path}
-          >
-            {file.path}
-          </span>
+    <div className="flex flex-col h-full bg-[var(--bg-base)]">
+      <div className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+        <div className="flex items-center gap-2 px-2.5 py-2">
+          <IconButton size="xs" onClick={onBack} aria-label="Back to file explorer" title="Back"><ArrowLeft className="w-3.5 h-3.5" /></IconButton>
+          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: getLanguageColor(file.language) }} />
+          <div className="min-w-0 flex-1">
+            <h2 className="m-0 text-[12px] font-medium font-mono truncate" title={file.path}>{file.name}</h2>
+            <p className="m-0 text-[10px] text-[var(--text-muted)] truncate">{file.path} · {repository.ref ?? repository.commitSha.slice(0, 7)}</p>
+          </div>
+          <Badge tone="neutral">{file.lineCount} lines</Badge>
+          <IconButton size="xs" onClick={() => setShowFind((value) => !value)} active={showFind} title="Find in file" aria-label="Find in file"><Search className="w-3.5 h-3.5" /></IconButton>
+          <IconButton size="xs" onClick={() => { void pinInvestigationItem({ type: 'file', title: file.path, content: `Pinned ${repository.fullName}@${repository.ref ?? repository.commitSha}${activeRange.start ? ` · lines ${activeRange.start}–${activeRange.end ?? activeRange.start}` : ''}`, repositoryId: repository.id, filePath: file.path, startLine: activeRange.start, endLine: activeRange.end }); setPinned(true); }} title="Pin to investigation" aria-label="Pin file to investigation"><Bookmark className={`w-3.5 h-3.5 ${pinned ? 'text-[var(--accent-text)]' : ''}`} /></IconButton>
+          <IconButton size="xs" onClick={() => { if (file.content) void navigator.clipboard.writeText(file.content); setCopied(true); setTimeout(() => setCopied(false), 1600); }} title="Copy file" aria-label="Copy file">{copied ? <Check className="w-3.5 h-3.5 text-[var(--success-text)]" /> : <Copy className="w-3.5 h-3.5" />}</IconButton>
+          {githubUrl && <a href={githubUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center w-6 h-6 rounded-md text-[var(--text-muted)] hover:text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" title="Open at exact commit on GitHub" aria-label="Open at exact commit on GitHub"><ExternalLink className="w-3.5 h-3.5" /></a>}
         </div>
-
-        <div className="flex items-center gap-0.5 shrink-0">
-          <IconButton
-            size="xs"
-            active={showFind}
-            onClick={() => setShowFind((v) => !v)}
-            title="Search inside file"
-            aria-label="Search inside file"
-          >
-            <Search className="w-3.5 h-3.5" />
-          </IconButton>
-          <IconButton
-            size="xs"
-            onClick={handleCopy}
-            title="Copy source code"
-            aria-label="Copy source code"
-          >
-            {copied ? (
-              <Check className="w-3.5 h-3.5 text-[var(--success-text)]" />
-            ) : (
-              <Copy className="w-3.5 h-3.5" />
-            )}
-          </IconButton>
-          <a
-            href={githubUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center justify-center w-6 h-6 rounded-lg text-[var(--text-secondary)] hover:text-[var(--accent-text)] hover:bg-[var(--bg-hover)] transition-colors"
-            title="Open exact commit file on GitHub"
-            aria-label="Open on GitHub"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-          </a>
+        {showFind && <div className="px-2.5 pb-2 flex items-center gap-2"><Search className="w-3.5 h-3.5 text-[var(--text-muted)]" /><Input autoFocus value={findQuery} onChange={(event) => setFindQuery(event.target.value)} placeholder="Find in file…" aria-label="Search current file" /><span className="text-[10px] text-[var(--text-muted)] whitespace-nowrap">{findQuery ? `${matchingLineNumbers.size} line(s)` : ''}</span></div>}
+        <div className="flex items-center gap-1.5 px-2.5 pb-2">
+          <Code2 className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" />
+          <Select aria-label="Jump to symbol" value="" onChange={(event) => { const line = Number(event.target.value); if (line) setActiveRange({ start: line, end: line }); }} className="flex-1 min-w-0"><option value="">Jump to symbol…</option>{symbols.map((symbol) => <option key={symbol.id} value={symbol.startLine}>{symbol.parentSymbol ? `${symbol.parentSymbol}.` : ''}{symbol.name} · L{symbol.startLine}</option>)}</Select>
         </div>
       </div>
-
-      {/* Metadata, Symbol Jump & AI Action Bar */}
-      <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-chrome)] flex-wrap shrink-0">
-        <div className="flex items-center gap-1.5">
-          <Badge tone="neutral">{file.language}</Badge>
-          <span className="text-[11px] text-[var(--text-muted)] tabular-nums">
-            {rawLines.length} lines
-          </span>
-          {symbols.length > 0 && (
-            <Select
-              aria-label="Jump to symbol"
-              defaultValue=""
-              onChange={(e) => {
-                const sym = symbols.find((s) => s.id === e.target.value);
-                if (sym) setActiveRange({ start: sym.startLine, end: sym.endLine });
-              }}
-              className="h-6.5 max-w-[155px] text-[11px]"
-            >
-              <option value="">Symbols ({symbols.length})</option>
-              {symbols.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.kind}: {s.parentSymbol ? `${s.parentSymbol}.${s.name}` : s.name} (L{s.startLine})
-                </option>
-              ))}
-            </Select>
-          )}
-        </div>
-
-        <div className="flex items-center gap-1">
-          {selectedSnippet ? (
-            <Button size="xs" variant="primary" onClick={handleAskSelection}>
-              <MessageSquarePlus className="w-3 h-3" /> Ask about selection
-            </Button>
-          ) : (
-            <Button size="xs" variant="subtle" onClick={handleAskAboutFile}>
-              <Sparkles className="w-3 h-3" /> Explain file
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {showFind && (
-        <div className="flex items-center gap-2 px-2.5 py-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] shrink-0">
-          <Input
-            value={findQuery}
-            onChange={(e) => setFindQuery(e.target.value)}
-            placeholder="Find in file…"
-            aria-label="Find in file"
-            className="h-7 text-[12px]"
-            autoFocus
-          />
-          <Badge tone={matchingLineNumbers.size > 0 ? 'accent' : 'neutral'}>
-            {matchingLineNumbers.size} match{matchingLineNumbers.size === 1 ? '' : 'es'}
-          </Badge>
-        </div>
-      )}
-
-      {/* Code Viewport */}
-      <div
-        ref={codeContainerRef}
-        onMouseUp={handleMouseUp}
-        className="flex-1 overflow-auto font-mono text-[12px] leading-[1.65]"
-      >
-        {!file.indexed || file.content === undefined ? (
-          <EmptyState
-            icon={Code2}
-            title="File not indexed locally"
-            description={file.skippedReason ?? 'This file was skipped during repository indexing.'}
-            action={
-              <a
-                href={githubUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-[12px] font-medium text-[var(--accent-text)] underline"
-              >
-                View original on GitHub <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-            }
-          />
-        ) : (
-          <table className="w-full border-collapse">
-            <tbody>
-              {rawLines.map((rawLine, idx) => {
-                const lineNum = idx + 1;
-                const isTarget =
-                  activeRange.start !== undefined &&
-                  lineNum >= activeRange.start &&
-                  lineNum <= (activeRange.end ?? activeRange.start);
-                const isFindMatch = matchingLineNumbers.has(lineNum);
-                const htmlLine = highlightedLines?.[idx];
-
-                return (
-                  <tr
-                    key={lineNum}
-                    data-line={lineNum}
-                    className={
-                      isTarget
-                        ? 'bg-[var(--accent-soft)]'
-                        : isFindMatch
-                          ? 'bg-[var(--warning-soft)]'
-                          : 'hover:bg-[var(--bg-hover)]/35'
-                    }
-                  >
-                    <td
-                      onClick={() => setActiveRange({ start: lineNum, end: lineNum })}
-                      className={`select-none text-right pr-3 pl-3 text-[11px] tabular-nums align-top cursor-pointer w-[1%] whitespace-nowrap border-r border-[var(--border-subtle)] ${
-                        isTarget
-                          ? 'text-[var(--accent-text)] font-semibold'
-                          : 'text-[var(--text-muted)]'
-                      }`}
-                    >
-                      {lineNum}
-                    </td>
-                    <td className="pl-3.5 pr-4 whitespace-pre text-[var(--text-primary)]">
-                      {htmlLine !== undefined ? (
-                        <span dangerouslySetInnerHTML={{ __html: htmlLine || ' ' }} />
-                      ) : (
-                        rawLine || ' '
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
+      {selectedSnippet && <div className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 border-b border-[var(--accent-border)] bg-[var(--accent-soft)]"><span className="text-[10.5px] text-[var(--accent-text)] truncate flex-1">{selectedSnippet.slice(0, 100)}</span><Button size="xs" variant="primary" onClick={() => { setAttachedSelection({ text: selectedSnippet, sourceUrl: githubUrl, pageTitle: file.path, startLine: activeRange.start, endLine: activeRange.end, capturedAt: Date.now(), kind: 'code', language: file.language }); setChatMode('explain_selection'); setActiveTab('chat'); }}><MessageSquarePlus className="w-3 h-3" /> Ask about selection</Button><IconButton size="xs" onClick={() => setSelectedSnippet('')} aria-label="Clear selection"><X className="w-3 h-3" /></IconButton></div>}
+      {inspectedSymbol && <div className="shrink-0 max-h-48 overflow-auto border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2"><div className="flex items-center gap-2"><strong className="font-mono text-[11px]">{inspectedSymbol}</strong><Badge tone="neutral">lexical navigation</Badge><button type="button" onClick={() => setInspectedSymbol(null)} className="ml-auto cursor-pointer" aria-label="Close symbol navigation"><X className="w-3 h-3" /></button></div><div className="mt-1.5 space-y-1">{references.slice(0, 20).map((reference) => <button type="button" key={`${reference.fileId}:${reference.startLine}:${reference.relation}`} onClick={() => reference.fileId === file.id ? setActiveRange({ start: reference.startLine, end: reference.endLine }) : void openFileInViewer(repository.id, reference.filePath, reference.startLine, reference.endLine)} className="block w-full truncate text-left font-mono text-[10px] text-[var(--accent-text)] cursor-pointer">{reference.relation === 'definition' ? '◆ ' : '↳ '}{reference.filePath}:{reference.startLine} {reference.excerpt}</button>)}{!references.length && <p className="m-0 text-[10px] text-[var(--text-muted)]">No indexed definitions or references found.</p>}</div></div>}
+      <div ref={codeContainerRef} className="flex-1 min-h-0" onMouseUp={handleMouseUp}>
+        {rawLines.length === 1 && !rawLines[0] ? <EmptyState icon={Code2} title="No indexed content" description={file.skippedReason ?? 'This file has not been downloaded yet.'} action={<Button size="sm" variant="primary" onClick={async () => { try { const { indexSingleSkippedFile } = await import('../../features/indexing/sourceIndexer'); const result = await indexSingleSkippedFile(repository, file.path); await openFileInViewer(result.repository.id, file.path); useAppStore.setState({ repositories: useAppStore.getState().repositories.map((item) => item.id === result.repository.id ? result.repository : item) }); } catch (error) { useAppStore.setState({ chatError: error instanceof Error ? error.message : 'Unable to index this file.' }); } }}>Index this file</Button>} /> : <VirtualList items={rawLines} itemHeight={21} height={viewportHeight} getKey={(_line, index) => `${file.id}:${index}`} renderItem={(rawLine, index) => {
+          const lineNum = index + 1;
+          const isTarget = activeRange.start !== undefined && lineNum >= activeRange.start && lineNum <= (activeRange.end ?? activeRange.start);
+          const isMatch = matchingLineNumbers.has(lineNum);
+          return <table className="w-full border-collapse font-mono text-[11.5px] leading-[21px]"><tbody><tr data-line={lineNum} onClick={(event) => void inspectAtLine(lineNum, event)} className={`cursor-pointer ${isTarget ? 'bg-[var(--accent-soft)]' : isMatch ? 'bg-[var(--warning-soft)]' : 'hover:bg-[var(--bg-hover)]'}`}><td className="py-0 px-2 text-right select-none text-[var(--text-muted)] w-10 border-r border-[var(--border-subtle)]">{lineNum}</td><td className="py-0 pl-3 pr-4 whitespace-pre text-[var(--text-primary)]">{highlightedLines?.[index] !== undefined ? <span dangerouslySetInnerHTML={{ __html: highlightedLines[index] || ' ' }} /> : rawLine || ' '}</td></tr></tbody></table>;
+        }} />}
       </div>
     </div>
   );

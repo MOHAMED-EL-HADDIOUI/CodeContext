@@ -175,6 +175,13 @@ export const ChatView: React.FC = () => {
     chatError,
     attachedSelection,
     pendingConsentPrompt,
+    retrievalStages,
+    transmissionPreview,
+    sessions,
+    activeSessionId,
+    selectSession,
+    createSession,
+    workspaceRepositoryIds,
     settings,
     setChatMode,
     setAttachedSelection,
@@ -196,6 +203,7 @@ export const ChatView: React.FC = () => {
   const scrollEndRef = useRef<HTMLDivElement>(null);
 
   const activeRepo = repositories.find((r) => r.id === activeRepositoryId) ?? null;
+  const selectedRepositories = repositories.filter((repository) => workspaceRepositoryIds.includes(repository.id));
 
   useEffect(() => {
     scrollEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -259,6 +267,17 @@ export const ChatView: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-[var(--bg-base)]">
       {/* Mode & Action Bar */}
+      {/* Investigation and source context */}
+      <div className="shrink-0 px-2.5 py-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] flex items-center gap-1.5">
+        <Bookmark className="w-3.5 h-3.5 text-[var(--accent-text)] shrink-0" />
+        <Select aria-label="Active investigation" value={activeSessionId ?? ''} onChange={(event) => void selectSession(event.target.value)} className="flex-1 min-w-0">
+          {sessions.map((session) => <option value={session.id} key={session.id}>{session.title}</option>)}
+        </Select>
+        <Button size="xs" variant="ghost" onClick={() => void createSession()}>New</Button>
+        {selectedRepositories.length > 1 && <Badge tone="accent">{selectedRepositories.length} sources</Badge>}
+      </div>
+      {selectedRepositories.length > 1 && <div className="shrink-0 flex gap-1 overflow-x-auto px-2.5 py-1.5 border-b border-[var(--border-subtle)]">{selectedRepositories.map((repository) => <Badge tone="neutral" key={repository.id}>{repository.fullName}@{repository.ref ?? repository.commitSha.slice(0, 6)}</Badge>)}</div>}
+
       <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] shrink-0">
         <div className="flex items-center gap-1.5 min-w-0">
           <Sparkles className="w-3.5 h-3.5 text-[var(--accent-text)] shrink-0" />
@@ -397,11 +416,11 @@ export const ChatView: React.FC = () => {
                   Confirm external AI transmission
                 </p>
                 <p className="text-[var(--text-secondary)] m-0 leading-relaxed">
-                  Only retrieved code excerpts and your question will be sent to{' '}
-                  <span className="font-mono text-[var(--text-primary)]">
-                    {settings.ai.baseUrl || settings.ai.provider}
-                  </span>{' '}
-                  (<span className="font-mono">{settings.ai.model}</span>).
+                  Review the exact context before sending it to <span className="font-mono text-[var(--text-primary)]">{settings.ai.baseUrl || settings.ai.provider}</span> ({settings.ai.model}). Your credentials are never included in source excerpts or exports.
+                  {transmissionPreview && <span className="mt-2 block rounded-md border border-[var(--border-subtle)] bg-[var(--bg-base)] p-2 text-[10.5px]">
+                    <strong>{transmissionPreview.sourceCount} source excerpts</strong> · about {transmissionPreview.estimatedTokens.toLocaleString()} tokens · {transmissionPreview.includesHistory ? 'recent history included' : 'no prior history'}
+                    {transmissionPreview.sources.slice(0, 8).map((source) => <span key={`${source.repositoryId}:${source.filePath}:${source.startLine}`} className="mt-1 block font-mono truncate">{source.repositoryName}/{source.filePath}:{source.startLine}–{source.endLine}</span>)}
+                  </span>}
                 </p>
               </div>
             </div>
@@ -557,8 +576,9 @@ export const ChatView: React.FC = () => {
               <div className="rounded-xl border border-[var(--accent-border)] bg-[var(--bg-surface)] p-3 space-y-2.5 shadow-[var(--shadow-sm)]">
                 <div className="flex items-center gap-2 text-[11.5px] font-medium text-[var(--accent-text)]">
                   <StatusDot tone="accent" pulse />
-                  <span>Generating grounded answer…</span>
+                  <span>{streamingContent ? 'Generating grounded answer…' : 'Preparing evidence and verified sources…'}</span>
                 </div>
+                {retrievalStages.length > 0 && <div className="space-y-1.5" aria-live="polite">{retrievalStages.map((stage) => <div key={stage.id} className="flex items-center gap-2 text-[10.5px] text-[var(--text-secondary)]"><span className={`w-1.5 h-1.5 rounded-full ${stage.status === 'active' ? 'bg-[var(--accent-text)] animate-pulse' : stage.status === 'complete' ? 'bg-[var(--success-text)]' : 'bg-[var(--text-muted)]'}`} /><span>{stage.detail}</span></div>)}</div>}
                 {streamingContent ? (
                   <MarkdownView content={streamingContent} />
                 ) : (

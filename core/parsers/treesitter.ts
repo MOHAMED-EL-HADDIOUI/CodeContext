@@ -14,8 +14,15 @@ export function isTreeSitterAvailable(): boolean {
   return treeSitterReady;
 }
 
+export function getParserResourceUrl(path: string): string | null {
+  if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) return chrome.runtime.getURL(path);
+  if (globalThis.location?.protocol === 'chrome-extension:') return new URL(`/${path}`, globalThis.location.origin).toString();
+  return null;
+}
+
 export async function initTreeSitterRuntime(): Promise<boolean> {
   if (treeSitterReady) return true;
+  if (!getParserResourceUrl('wasm/tree-sitter.wasm')) return false;
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
@@ -26,17 +33,15 @@ export async function initTreeSitterRuntime(): Promise<boolean> {
         return false;
       }
 
-      const locateFile = (scriptName: string): string => {
-        if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) {
-          return chrome.runtime.getURL(`wasm/${scriptName}`);
-        }
-        return `/wasm/${scriptName}`;
-      };
+      const locateFile = (scriptName: string): string => getParserResourceUrl(`wasm/${scriptName}`) ?? scriptName;
 
       await ParserClass.init({ locateFile });
       treeSitterReady = true;
       return true;
-    } catch {
+    } catch (error) {
+      console.warn('Tree-sitter WASM initialization failed:', error instanceof Error ? error.message : error);
+      // A transient blocked download can be retried on the next file.
+      initPromise = null;
       treeSitterReady = false;
       return false;
     }
